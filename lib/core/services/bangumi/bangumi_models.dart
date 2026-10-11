@@ -65,6 +65,10 @@ class BangumiSubject {
   final int type;
   final String? date;
 
+  /// 是否 R18 条目（搜索接口匿名请求下服务端忽略 nsfw 过滤参数，
+  /// 需调用方按此字段自行过滤）。
+  final bool nsfw;
+
   /// 本篇话数（0 表示未知）。
   final int eps;
 
@@ -77,6 +81,7 @@ class BangumiSubject {
     required this.nameCn,
     required this.type,
     this.date,
+    this.nsfw = false,
     this.eps = 0,
     this.image,
   });
@@ -100,6 +105,7 @@ class BangumiSubject {
       nameCn: json['name_cn'] as String? ?? '',
       type: (json['type'] as num?)?.toInt() ?? 0,
       date: json['date'] as String?,
+      nsfw: json['nsfw'] as bool? ?? false,
       eps: (json['eps'] as num?)?.toInt() ?? 0,
       image: image,
     );

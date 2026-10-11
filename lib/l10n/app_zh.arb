@@ -1582,6 +1582,7 @@
   "clearSearchHistory": "清空历史",
   "clearSearchHistoryConfirm": "确定清空所有搜索历史？",
   "noSearchHistory": "暂无搜索历史",
+  "deleteSearchHistoryConfirm": "删除这条搜索历史？",
   "hotSearch": "热门搜索",
   "noHotSearch": "暂无热词",
   "importDataParsing": "正在解析…",

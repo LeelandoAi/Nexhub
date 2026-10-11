@@ -109,6 +109,7 @@ class BangumiProxyConfig {
   static const String _defaultApi = 'https://api.bgm.tv';
   static const String _defaultNext = 'https://next.bgm.tv';
   static const String _defaultOAuth = 'https://bgm.tv';
+  static const String _defaultMainSite = 'https://bgm.tv';
   static const String _defaultImage = 'https://lain.bgm.tv';
 
   /// v0 API 基址（替换 api.bgm.tv）。
@@ -128,6 +129,12 @@ class BangumiProxyConfig {
       (mode == BangumiProxyMode.mirror && mainSite.trim().isNotEmpty)
           ? _withScheme(mainSite.trim())
           : _defaultOAuth;
+
+  /// 本站网页基址（替换 bgm.tv，网页抓取用；替换规则与 [oauthBaseUrl] 相同）。
+  String get mainSiteBaseUrl =>
+      (mode == BangumiProxyMode.mirror && mainSite.trim().isNotEmpty)
+          ? _withScheme(mainSite.trim())
+          : _defaultMainSite;
 
   /// 图片基址（替换 lain.bgm.tv）。
   String get imageBaseUrl =>

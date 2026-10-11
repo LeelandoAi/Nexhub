@@ -3076,6 +3076,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get noSearchHistory => '暂无搜索历史';
 
   @override
+  String get deleteSearchHistoryConfirm => '删除这条搜索历史？';
+
+  @override
   String get hotSearch => '热门搜索';
 
   @override

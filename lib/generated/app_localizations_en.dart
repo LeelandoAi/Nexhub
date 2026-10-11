@@ -3135,6 +3135,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get noSearchHistory => 'No search history';
 
   @override
+  String get deleteSearchHistoryConfirm => 'Delete this search history entry?';
+
+  @override
   String get hotSearch => 'Hot search';
 
   @override

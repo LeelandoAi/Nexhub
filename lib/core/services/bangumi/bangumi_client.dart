@@ -31,7 +31,9 @@ class BangumiApiException implements Exception {
 /// token 由外部（[BangumiAuth]）通过 [token] 属性注入；未登录时公开接口
 /// （搜索 / 剧集）仍可匿名调用。
 class BangumiClient {
-  BangumiClient({Dio? dio}) : _dio = dio ?? _buildDio();
+  BangumiClient({Dio? dio, int maxAttempts = 3})
+      : _dio = dio ?? _buildDio(),
+        _maxAttempts = maxAttempts < 1 ? 1 : maxAttempts;
 
   static const String baseUrl = 'https://api.bgm.tv';
 
@@ -41,6 +43,9 @@ class BangumiClient {
 
   /// 顺序请求最小间隔。
   static const Duration _minInterval = Duration(milliseconds: 300);
+
+  /// 单请求最大尝试次数（429/5xx/网络错误重试；非核心调用方可调低快速失败）。
+  final int _maxAttempts;
 
   final Dio _dio;
 
@@ -84,7 +89,7 @@ class BangumiClient {
       }
       Response<dynamic>? response;
       Object? lastError;
-      for (int attempt = 0; attempt <= 2; attempt++) {
+      for (int attempt = 0; attempt < _maxAttempts; attempt++) {
         if (attempt > 0) {
           // 指数退避：1s → 2s。
           await Future<void>.delayed(Duration(seconds: 1 << (attempt - 1)));
@@ -249,6 +254,43 @@ class BangumiClient {
       body: <String, dynamic>{
         'keyword': keyword,
         'filter': <String, dynamic>{'type': types},
+      },
+    );
+    final data = res.data;
+    if (data is! Map<String, dynamic>) return const <BangumiSubject>[];
+    final list = data['data'];
+    if (list is! List) return const <BangumiSubject>[];
+    return list
+        .whereType<Map<String, dynamic>>()
+        .map(BangumiSubject.fromJson)
+        .toList();
+  }
+
+  /// 拉取热门条目（POST /v0/search/subjects，`sort: heat` 按收藏人数排序）。
+  ///
+  /// 用于搜索热词等「无关键词、按类型浏览热门」的场景：keyword 恒为空串
+  /// （浏览模式），[types] 限定条目类型，[tags] 为且关系标签过滤（如 `漫画`），
+  /// [airDate] 为开播日期比较串（如 `>=2026-04-14`）。
+  /// 匿名请求下服务端忽略 nsfw 过滤参数，R18 条目由调用方按
+  /// [BangumiSubject.nsfw] 自行过滤。
+  Future<List<BangumiSubject>> searchPopularSubjects({
+    required List<int> types,
+    List<String> tags = const <String>[],
+    List<String> airDate = const <String>[],
+    int limit = 15,
+  }) async {
+    final res = await _request(
+      'POST',
+      '/v0/search/subjects',
+      query: <String, dynamic>{'limit': limit},
+      body: <String, dynamic>{
+        'keyword': '',
+        'sort': 'heat',
+        'filter': <String, dynamic>{
+          'type': types,
+          if (tags.isNotEmpty) 'tag': tags,
+          if (airDate.isNotEmpty) 'air_date': airDate,
+        },
       },
     );
     final data = res.data;

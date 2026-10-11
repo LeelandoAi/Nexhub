@@ -6032,6 +6032,12 @@ abstract class AppLocalizations {
   /// **'No search history'**
   String get noSearchHistory;
 
+  /// No description provided for @deleteSearchHistoryConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete this search history entry?'**
+  String get deleteSearchHistoryConfirm;
+
   /// No description provided for @hotSearch.
   ///
   /// In en, this message translates to:

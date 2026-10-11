@@ -3,6 +3,7 @@ import 'package:nexhub/generated/app_localizations.dart';
 import '../models/plugin_config.dart';
 import '../search/search_history_store.dart';
 import '../theme/app_tokens.dart';
+import '../utils/app_log.dart';
 import 'app_icon_button.dart';
 import 'search_suggestions.dart';
 import 'layout_picker_button.dart';
@@ -117,8 +118,9 @@ class _ModuleSearchScreenState extends State<ModuleSearchScreen> {
     if (mounted) setState(() {});
   }
 
-  bool get _showSuggestions =>
-      _focusNode.hasFocus && widget.searchController.text.isEmpty;
+  // 建议面板只看查询是否为空，不看焦点：打开页面即显示（无需先点搜索框），
+  // 点胶囊搜索后结果替换面板，清空文字（×）或点搜索框即回来。
+  bool get _showSuggestions => widget.searchController.text.isEmpty;
 
   void _onSubmitted(String query) {
     final String trimmed = query.trim();
@@ -133,6 +135,7 @@ class _ModuleSearchScreenState extends State<ModuleSearchScreen> {
   }
 
   void _onKeywordTap(String keyword) {
+    AppLog.instance.i('[搜索] 点胶囊「$keyword」');
     widget.searchController.text = keyword;
     widget.onQueryChanged(keyword);
     _focusNode.unfocus();

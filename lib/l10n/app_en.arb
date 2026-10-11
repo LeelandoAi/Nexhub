@@ -1603,6 +1603,7 @@
   "clearSearchHistory": "Clear history",
   "clearSearchHistoryConfirm": "Clear all search history?",
   "noSearchHistory": "No search history",
+  "deleteSearchHistoryConfirm": "Delete this search history entry?",
   "hotSearch": "Hot search",
   "noHotSearch": "No hot search",
   "importDataParsing": "Parsing…",

@@ -1,9 +1,11 @@
 /// Search suggestions shown when the search field is focused and empty.
 ///
 /// Renders two vertically stacked sections: recent search history (chips,
-/// clearable via a confirm dialog) and built-in hot search keywords
-/// (chips). Tapping any chip invokes [onKeywordTap].
+/// clearable via a confirm dialog) and hot search keywords (chips, refreshed
+/// from the remote feed). Tapping any chip invokes [onKeywordTap].
 library;
+
+import 'dart:async';
 
 import 'package:material_ui/material_ui.dart';
 import 'package:nexhub/generated/app_localizations.dart';
@@ -35,13 +37,24 @@ class SearchSuggestions extends StatefulWidget {
 
 class _SearchSuggestionsState extends State<SearchSuggestions> {
   Future<List<String>>? _historyFuture;
-  Future<List<String>>? _hotFuture;
+  HotSearchKeywords get _hotKeywords => HotSearchKeywords.instance;
 
   @override
   void initState() {
     super.initState();
     _historyFuture = widget.historyStore.load();
-    _hotFuture = HotSearchKeywords.forModule(widget.sourceType);
+    _hotKeywords.addListener(_onHotKeywordsChanged);
+    unawaited(_hotKeywords.load());
+  }
+
+  void _onHotKeywordsChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _hotKeywords.removeListener(_onHotKeywordsChanged);
+    super.dispose();
   }
 
   Future<void> _confirmClear() async {
@@ -64,6 +77,35 @@ class _SearchSuggestionsState extends State<SearchSuggestions> {
     );
     if (confirmed == true) {
       await widget.historyStore.clear();
+      if (mounted) {
+        setState(() {
+          _historyFuture = widget.historyStore.load();
+        });
+      }
+    }
+  }
+
+  /// 长按历史胶囊：确认后删除该条历史。
+  Future<void> _confirmRemoveEntry(String keyword) async {
+    final AppLocalizations l10n = AppLocalizations.of(context);
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext ctx) => AppAlertDialog(
+        content: Text(l10n.deleteSearchHistoryConfirm),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(l10n.cancel),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(l10n.confirm),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await widget.historyStore.remove(keyword);
       if (mounted) {
         setState(() {
           _historyFuture = widget.historyStore.load();
@@ -133,6 +175,7 @@ class _SearchSuggestionsState extends State<SearchSuggestions> {
                     _ChipWrap(
                       keywords: history,
                       onTap: widget.onKeywordTap,
+                      onLongPress: _confirmRemoveEntry,
                     ),
                 ],
               );
@@ -141,48 +184,48 @@ class _SearchSuggestionsState extends State<SearchSuggestions> {
           const Divider(height: AppTokens.spaceLg * 2),
           // --- Hot search section ---
           Text(l10n.hotSearch, style: titleStyle),
-          FutureBuilder<List<String>>(
-            future: _hotFuture,
-            builder:
-                (BuildContext context, AsyncSnapshot<List<String>> snapshot) {
-              final List<String> keywords =
-                  snapshot.data ?? const <String>[];
-              final bool loading =
-                  snapshot.connectionState != ConnectionState.done;
-              if (loading) {
-                return const Padding(
-                  padding: EdgeInsets.symmetric(vertical: AppTokens.spaceSm),
-                  child: SizedBox(
-                    height: 24,
-                    width: 24,
-                    child: Center(
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                  ),
-                );
-              }
-              if (keywords.isEmpty) {
-                return Padding(
-                  padding: const EdgeInsets.symmetric(
-                    vertical: AppTokens.spaceSm,
-                  ),
-                  child: Text(l10n.noHotSearch, style: hintStyle),
-                );
-              }
-              return _ChipWrap(keywords: keywords, onTap: widget.onKeywordTap);
-            },
-          ),
+          _buildHotKeywords(l10n, hintStyle),
         ],
       ),
     );
   }
+
+  /// 热词区：本地兜底数据就绪前显示加载态；之后同步读仓库，
+  /// 远程刷新到达时经监听器自动重建。
+  Widget _buildHotKeywords(AppLocalizations l10n, TextStyle? hintStyle) {
+    if (!_hotKeywords.bootstrapped) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: AppTokens.spaceSm),
+        child: SizedBox(
+          height: 24,
+          width: 24,
+          child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+        ),
+      );
+    }
+    final List<String> keywords = _hotKeywords.forModule(widget.sourceType);
+    if (keywords.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: AppTokens.spaceSm),
+        child: Text(l10n.noHotSearch, style: hintStyle),
+      );
+    }
+    return _ChipWrap(keywords: keywords, onTap: widget.onKeywordTap);
+  }
 }
 
 class _ChipWrap extends StatelessWidget {
-  const _ChipWrap({required this.keywords, required this.onTap});
+  const _ChipWrap({
+    required this.keywords,
+    required this.onTap,
+    this.onLongPress,
+  });
 
   final List<String> keywords;
   final ValueChanged<String> onTap;
+
+  /// 长按单个胶囊的回调（历史胶囊传删除确认；热搜胶囊不传）。
+  final ValueChanged<String>? onLongPress;
 
   @override
   Widget build(BuildContext context) => Padding(
@@ -191,12 +234,17 @@ class _ChipWrap extends StatelessWidget {
           spacing: AppTokens.spaceSm,
           runSpacing: AppTokens.spaceSm,
           children: keywords
-              .map(
-                (String k) => ActionChip(
-                  label: Text(k),
-                  onPressed: () => onTap(k),
-                ),
-              )
+              .map((String k) => GestureDetector(
+                    // ActionChip 无 onLongPress 参数；长按语义由外层
+                    // GestureDetector 提供（历史胶囊长按=删除确认，
+                    // 需按住约半秒不松手、不滑动）。
+                    onLongPress:
+                        onLongPress == null ? null : () => onLongPress!(k),
+                    child: ActionChip(
+                      label: Text(k),
+                      onPressed: () => onTap(k),
+                    ),
+                  ))
               .toList(growable: false),
         ),
       );
