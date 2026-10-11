@@ -56,6 +56,12 @@ class HistoryEntry {
   /// （[detailUrl] 存路由凭据 `ms:<serverId>:<itemId>`）；null = 旧条目。
   final String? kind;
 
+  /// 封面下载失败标记。启动回填/写入历史时下载封面失败（源失效、断网等）
+  /// 即置位并持久化，后续启动回填不再重试——否则不可达源的封面每次启动
+  /// 都会整批重发注定失败的请求。用户重新浏览该作品时条目经
+  /// [HistoryEntry.fromMediaItem] 重建，标记自动复位。
+  final bool coverFetchFailed;
+
   const HistoryEntry({
     required this.id,
     required this.title,
@@ -72,6 +78,7 @@ class HistoryEntry {
     this.localCoverPath,
     this.hidden = false,
     this.kind,
+    this.coverFetchFailed = false,
   });
 
   factory HistoryEntry.fromMediaItem(
@@ -123,6 +130,8 @@ class HistoryEntry {
         'localCoverPath': localCoverPath,
         'hidden': hidden,
         if (kind != null) 'kind': kind,
+        // 失败标记低频且非默认值，仅置位时落盘，避免膨胀全部条目。
+        if (coverFetchFailed) 'coverFetchFailed': true,
       };
 
   factory HistoryEntry.fromJson(Map<String, dynamic> json) => HistoryEntry(
@@ -143,9 +152,10 @@ class HistoryEntry {
         // 旧数据无 hidden 字段时按 false（可见）解析，保证向后兼容。
         hidden: json['hidden'] as bool? ?? false,
         kind: json['kind'] as String?,
+        coverFetchFailed: json['coverFetchFailed'] as bool? ?? false,
       );
 
-  HistoryEntry copyWith({String? localCoverPath, bool? hidden}) => HistoryEntry(
+  HistoryEntry copyWith({String? localCoverPath, bool? hidden, bool? coverFetchFailed}) => HistoryEntry(
         id: id,
         title: title,
         coverUrl: coverUrl,
@@ -160,6 +170,7 @@ class HistoryEntry {
         actors: actors,
         localCoverPath: localCoverPath ?? this.localCoverPath,
         hidden: hidden ?? this.hidden,
+        coverFetchFailed: coverFetchFailed ?? this.coverFetchFailed,
       );
 }
 
@@ -309,7 +320,8 @@ class HistoryManager extends ChangeNotifier {
 
   /// 异步将远程封面下载到本地缓存目录 `history_covers/`，并回写
   /// [HistoryEntry.localCoverPath]（离线可见）。任何失败均静默忽略，
-  /// 不影响历史功能。
+  /// 不影响历史功能；失败同时置 [HistoryEntry.coverFetchFailed]，
+  /// 启动回填不再对同一封面反复重试。
   Future<void> _cacheCoverFor(HistoryEntry entry) async {
     final url = entry.coverUrl;
     if (url == null || url.isEmpty || !url.startsWith('http')) return;
@@ -334,20 +346,33 @@ class HistoryManager extends ChangeNotifier {
         return;
       }
       final bytes = await HttpFetcher.instance.getBytes(url);
-      if (bytes.isEmpty) return;
+      if (bytes.isEmpty) {
+        await _markCoverFetchFailed(entry);
+        return;
+      }
       await target.writeAsBytes(bytes);
       _replaceEntryInCache(entry.copyWith(localCoverPath: target.path));
       await _persist();
       notifyListeners();
     } on Object {
-      // 封面缓存失败不影响历史功能。
+      // 封面缓存失败不影响历史功能；打标防下次启动回填重试。
+      await _markCoverFetchFailed(entry);
     }
+  }
+
+  /// 封面下载失败打标（幂等）：回写缓存并持久化，启动回填据此跳过。
+  Future<void> _markCoverFetchFailed(HistoryEntry entry) async {
+    if (entry.coverFetchFailed) return;
+    _replaceEntryInCache(entry.copyWith(coverFetchFailed: true));
+    await _persist();
   }
 
   /// 启动时回填缺封面条目的本地缓存（离线可见）。
   ///
   /// 遍历所有已加载的历史条目，对无本地缓存（或缓存文件已丢失）的远程封面
-  /// 重新下载；已缓存的有效条目跳过。任何失败均静默忽略，不影响历史功能。
+  /// 重新下载；已缓存的有效条目跳过；[HistoryEntry.coverFetchFailed] 置位
+  /// 的条目跳过（源失效等确定性失败，重试只会每次启动重发注定失败的请求）。
+  /// 任何失败均静默忽略，不影响历史功能。
   Future<void> _backfillMissingCovers() async {
     // 先快照再遍历：_cacheCoverFor 回写会经 _replaceEntryInCache 对 _cache
     // 中的 List 原地赋值（list[idx] = updated）。在 await 异步间隙内直接
@@ -358,6 +383,7 @@ class HistoryManager extends ChangeNotifier {
       for (final list in _cache.values) ...list,
     ];
     for (final entry in snapshot) {
+      if (entry.coverFetchFailed) continue;
       await _cacheCoverFor(entry);
     }
   }
