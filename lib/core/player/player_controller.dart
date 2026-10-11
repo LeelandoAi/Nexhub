@@ -156,7 +156,7 @@ class PlayerController extends ChangeNotifier {
   bool get isFullscreen => _isFullscreen;
 
  /// 退出全屏后恢复的方向（由播放页按「锁定方向」设置注入；默认自动跟随）。
- /// 全屏按钮进入时临时强制横屏，退出时回到此处声明的方向（项 3 协调）。
+ /// 进入全屏时临时强制横屏，退出时回到此处声明的方向（项 3 协调）。
   List<DeviceOrientation> _baseOrientations = const <DeviceOrientation>[];
   void setBaseOrientations(List<DeviceOrientation> o) => _baseOrientations = o;
 

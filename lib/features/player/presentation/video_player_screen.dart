@@ -450,6 +450,10 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   /// 暂停事件去抖：mpv 暂停→播放瞬间可能抖出瞬态 false，延迟确认防误闪。
   Timer? _playingFalseDebounce;
 
+  /// 「播放自动全屏」每媒体一次的闸：打开新媒体（进播放器 / 切集）时重置，
+  /// 起播后首次 playing=true 触发进入全屏；此后暂停续播不再强制进入。
+  bool _autoFullscreenDone = false;
+
   /// 应用播放/暂停态到 UI（playingStream 事件确认后调用）。
   void _applyPlayingState(bool p) {
     if (!mounted) return;
@@ -465,6 +469,17 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     } else {
       _uiHideTimer?.cancel();
     }
+  }
+
+  /// 播放自动全屏：起播即进入全屏（沿用原全屏按钮语义——锁定横屏 + 沉浸式）。
+  /// 每次打开新媒体只触发一次；PiP 小窗（Android 系统 PiP / 桌面 PiP）内不
+  /// 触发，避免在小窗中切换方向 / 隐藏系统 UI。
+  void _autoEnterFullscreenIfNeeded() {
+    if (_autoFullscreenDone) return;
+    _autoFullscreenDone = true;
+    if (_inPip || _desktopPipActive) return;
+    if (_controller.isFullscreen) return;
+    unawaited(_controller.toggleFullscreen());
   }
 
   // ─────────────────────── 长按倍速（功能4） ───────────────────────
@@ -825,6 +840,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   }
 
   Future<void> _init() async {
+    // 本次打开视为一次新的「播放自动全屏」机会（手动重试路径复用 _init）。
+    _autoFullscreenDone = false;
     // 缓存播放位置管理器引用：context 仅在页面存活期有效，dispose 时
     // 已失活无法 context.read；提前缓存后保存进度在任何时刻（含退出瞬间）可靠。
     try {
@@ -1070,6 +1087,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       if (p) {
         _playingFalseDebounce?.cancel();
         _applyPlayingState(true);
+        // 播放自动全屏（每媒体一次；暂停续播 / 重连续播不重复触发）。
+        _autoEnterFullscreenIfNeeded();
         return;
       }
       _playingFalseDebounce?.cancel();
@@ -1084,6 +1103,9 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       setState(() => _isPlaying = _controller.isPlaying);
       if (_isPlaying) _scheduleUiHide();
     }
+    // 兜底补触发播放自动全屏：订阅前已起播时流的 true 已错过，此处按当前
+    // 实际播放态补一次（闸保证每媒体只进一次全屏）。
+    if (mounted && _controller.isPlaying) _autoEnterFullscreenIfNeeded();
 
     // 初始化弹幕仓库（弹幕源选择已在 _init 开头恢复）
     _initDanmakuRepository();
@@ -1203,7 +1225,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       case PlayerLockOrientation.auto:
         orients = const <DeviceOrientation>[];
     }
-    // 记录退出全屏后要恢复的方向（全屏按钮临时强制横屏，退出回到此处）。
+    // 记录退出全屏后要恢复的方向（进入全屏临时强制横屏，退出回到此处）。
     _controller
         .setBaseOrientations(isPhone ? orients : const <DeviceOrientation>[]);
     if (!isPhone) return;
@@ -3122,6 +3144,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       // 新的一集重新允许跳过片头/片尾。
       _opSkippedThisEpisode = false;
       _edSkippedThisEpisode = false;
+      // 新一集恢复「播放自动全屏」资格。
+      _autoFullscreenDone = false;
     });
 
     final ep = widget.episodes![index];
@@ -4257,15 +4281,16 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                 ),
               ),
 
-              // 左边缘常驻锁定按钮（垂直居中；锁定时仍可见，作解锁入口）。
-              // 任何播放/暂停/控制层状态都常驻可用（PiP 小窗除外）——按钮在左缘
-              // 垂直居中，与画面中央的播放钮横向错开，不会相互遮挡。
+              // 左边缘常驻锁定按钮（锁定时仍可见，作解锁入口）。任何播放/暂停/
+              // 控制层状态都常驻可用（PiP 小窗除外）——纵向与画面中央的播放钮
+              // 同高（Alignment(0, -0.15)），横向错开不会相互遮挡。
               if (!pipMode)
                 Positioned(
                   left: AppTokens.spaceLg,
                   top: 0,
                   bottom: 0,
-                  child: Center(
+                  child: Align(
+                    alignment: const Alignment(0, -0.15),
                     child: _ControlButton(
                       key: const Key('player_lock_edge'),
                       icon: _controller.isLocked
@@ -4279,13 +4304,14 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                   ),
                 ),
 
-              // 右边缘常驻截图按钮（垂直居中；锁定态 / PiP 小窗隐藏，避免误触）
+              // 右边缘常驻截图按钮（与中央播放钮同高；锁定态 / PiP 小窗隐藏，避免误触）
               if (!_controller.isLocked && !pipMode)
                 Positioned(
                   right: AppTokens.spaceLg,
                   top: 0,
                   bottom: 0,
-                  child: Center(
+                  child: Align(
+                    alignment: const Alignment(0, -0.15),
                     child: _ControlButton(
                       key: const Key('player_screenshot_edge'),
                       icon: Icons.camera_alt_rounded,
@@ -4555,7 +4581,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
               onDragStart: _acquirePanelHold,
               onDragEnd: _releasePanelHold,
             ),
-            // 单行控件：时间 | 上一集 | 播放/暂停 | 下一集 | 弹幕 | 弹幕设置 ‖ 倍速 | 比例 | 选集 | 全屏
+            // 单行控件：时间 | 上一集 | 播放/暂停 | 下一集 | 弹幕 | 弹幕设置 ‖ 倍速 | 比例 | 选集
+            // （无全屏按钮：起播自动进入全屏，桌面可用 F 键手动切换。）
             Row(
               children: <Widget>[
                 // 时间
@@ -4658,17 +4685,6 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                     tooltip: l10n.playerEpisodes,
                     onTap: () => _showLineSheet(l10n),
                   ),
-                // 全屏
-                _ControlButton(
-                  key: const Key('player_quick_fullscreen'),
-                  icon: _controller.isFullscreen
-                      ? Icons.fullscreen_exit_rounded
-                      : Icons.fullscreen_rounded,
-                  tooltip: _controller.isFullscreen
-                      ? l10n.playerExitFullscreen
-                      : l10n.playerFullscreen,
-                  onTap: () => unawaited(_controller.toggleFullscreen()),
-                ),
               ],
             ),
           ],
