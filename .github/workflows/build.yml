@@ -174,6 +174,19 @@
 #       `project.exec`、旧 `project.exec { spec ->`、上一版 `project.providers.exec { spec ->`），
 #       幂等判定也收紧为检测 `.result.get()`，免得旧的错误产物被跳过。
 #     - **移除条件**：irondash 发布 Gradle 9 兼容版（cargokit 改用 `project.providers.exec { … }.result.get()`）后，本步可删除。
+#   v28（当前）：
+#     - **Windows 发布包缺 ECH 本地引擎（echproxy.dll）**：桌面 ECH 经 dart:ffi 加载
+#       echproxy.dll（bangumi_ech_proxy.dart 的 FfiEchBackend），windows/CMakeLists.txt
+#       的 install 规则此前指向 android/rust/target/ 下的 cargo 产物——该目录 gitignored，
+#       本地存在（build-windows.sh 构建过）、CI checkout 没有，if(EXISTS) 静默跳过 →
+#       发布的 zip/exe 均无引擎，设置里切 ECH 提示不可用并回退。本地构建因产物存在而
+#       正常，故从未在开发机暴露。
+#     - **修复**：CMake 改为优先用 windows/dll/echproxy.dll（build-windows.sh 的产物
+#       落点，已入库，checkout 即有），回落 cargo 产物，两者皆缺时 message(WARNING)
+#       不再静默；Windows job 编译后新增校验步骤，Release 产物缺 echproxy.dll 即显式失败。
+#     - **其他平台排查**：Android 三个 ABI 的 jniLibs libechproxy.so 均已入库、Gradle 自动
+#       打包，无此 bug（仍加校验步骤防回归）；Linux/macOS 引擎本体（libechproxy.so /
+#       .dylib）尚无构建脚本与入库产物，属功能缺口（FFI 后端安全降级），非本次打包问题。
 # =============================================================================
 
 name: Build & Release NexHub
@@ -434,6 +447,26 @@ jobs:
         run: |
           set -o pipefail
           flutter build apk --release --verbose --dart-define=DANMAKU_APP_ID=${{ secrets.DANMAKU_APP_ID }} --dart-define=DANMAKU_APP_SECRET=${{ secrets.DANMAKU_APP_SECRET }} --dart-define=BANGUMI_CLIENT_ID=${{ secrets.BANGUMI_CLIENT_ID }} --dart-define=BANGUMI_CLIENT_SECRET=${{ secrets.BANGUMI_CLIENT_SECRET }} 2>&1 | tee apk_fat_build.log || { echo "=== ANDROID FAT APK BUILD FAILED ===" && tail -n 500 apk_fat_build.log; exit 1; }
+      - name: 校验 ECH 引擎已打包 (libechproxy.so)
+        # 三个 ABI 的 jniLibs/libechproxy.so 均已入库、Gradle 自动打包（现状无此 bug）。
+        # 此校验防回归：若未来 jniLibs 被误删/被 abiFilters 过滤，这里显式失败而不是
+        # 静默发布 ECH 不可用的 APK。fat APK 含全 ABI，分包 APK 各含其一，逐一检查。
+        shell: bash
+        run: |
+          set -e
+          missing=0
+          for apk in build/app/outputs/flutter-apk/*.apk; do
+            if ! unzip -l "$apk" | grep -q "libechproxy.so"; then
+              echo "!! $apk 缺少 libechproxy.so（ECH 本地引擎未打包）"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "== flutter-apk 目录内容 =="
+            ls -la build/app/outputs/flutter-apk/
+            exit 1
+          fi
+          echo "全部 APK 均含 libechproxy.so"
       - uses: actions/upload-artifact@v4
         with:
           name: android-apk
@@ -471,6 +504,22 @@ jobs:
         run: |
           set -o pipefail
           flutter build windows --release --verbose --dart-define=DANMAKU_APP_ID=${{ secrets.DANMAKU_APP_ID }} --dart-define=DANMAKU_APP_SECRET=${{ secrets.DANMAKU_APP_SECRET }} --dart-define=BANGUMI_CLIENT_ID=${{ secrets.BANGUMI_CLIENT_ID }} --dart-define=BANGUMI_CLIENT_SECRET=${{ secrets.BANGUMI_CLIENT_SECRET }} 2>&1 | tee win_build.log || { echo "=== WINDOWS BUILD FAILED ===" && tail -n 200 win_build.log; exit 1; }
+      - name: 校验 ECH 本地引擎已打包 (echproxy.dll)
+        # windows/CMakeLists.txt 的 install 规则若因 DLL 缺失被跳过，flutter build
+        # 不会报错（v27 及以前的 CI 产物就是这样静默丢了 ECH 引擎，本地因 cargo
+        # 产物存在而正常）。这里显式校验 Release 产物里有 echproxy.dll，缺失即失败，
+        # 避免再次静默发布无引擎的包（zip 与 Inno Setup 安装包都基于同一 Release 目录）。
+        shell: bash
+        run: |
+          set -e
+          DLL="build/windows/x64/runner/Release/echproxy.dll"
+          if [ ! -f "$DLL" ]; then
+            echo "!! Release 产物缺少 echproxy.dll（ECH 本地引擎未打包）"
+            echo "== Release 目录内容 =="
+            ls -la build/windows/x64/runner/Release/
+            exit 1
+          fi
+          echo "echproxy.dll 已打包: $(du -h "$DLL" | cut -f1)"
       - name: 打包 Windows 安装文件
         run: Compress-Archive -Path "build/windows/x64/runner/Release/*" -DestinationPath "NexHub-windows-x64.zip"
       - uses: actions/upload-artifact@v4
