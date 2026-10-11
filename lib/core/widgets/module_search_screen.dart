@@ -33,7 +33,8 @@ class SearchLayoutToggle extends StatelessWidget {
 /// 模块搜索页骨架（各内容模块共用的搜索 + 布局切换 + 结果区）。
 ///
 /// 当搜索框聚焦且查询为空时，显示搜索历史与热门搜索建议面板；
-/// 否则显示外部传入的 [results]。回车提交时记录搜索历史。
+/// 否则显示外部传入的 [results]。输入过程不触发检索，回车/搜索键提交、
+/// 点击历史/热搜词或清空时才回调 [onQueryChanged]，提交时记录搜索历史。
 class ModuleSearchScreen extends StatefulWidget {
   final TextEditingController searchController;
   final ValueChanged<String> onQueryChanged;
@@ -187,7 +188,6 @@ class _ModuleSearchScreenState extends State<ModuleSearchScreen> {
                       },
                     )
                   : null,
-              onChanged: widget.onQueryChanged,
               onSubmitted: _onSubmitted,
             ),
           ),

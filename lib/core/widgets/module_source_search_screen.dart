@@ -5,7 +5,7 @@
 /// 结果逐源到达即展示，不再等全部源搜完才显示。
 /// 影视模块的媒体服务器作为一种可选源并列在源勾选条里，勾选才参与搜索。
 /// 小说/媒体/漫画三模块共用，布局偏好与书架/设置页共用 [LayoutSettingsStore] 单例。
-/// 输入防抖 300ms，避免每个按键都触发跨源搜索请求。
+/// 输入过程不触发检索，回车/搜索键提交后才跨源搜索。
 library;
 
 import 'dart:async';
@@ -85,7 +85,6 @@ class _ModuleSourceSearchScreenState extends State<ModuleSourceSearchScreen> {
   List<MediaItem> _results = const <MediaItem>[];
   /// 已展示结果的 id 集合：逐源追加/翻页合并时按 id 去重。
   final Set<String> _resultIds = <String>{};
-  Timer? _debounce;
   /// 源勾选条滚动控制器，桌面端滚轮/拖动可横滚。
   final ScrollController _sourceScrollController = ScrollController();
   /// 详情页预勾选源 chip 的 key，供 [Scrollable.ensureVisible] 定位。
@@ -196,7 +195,6 @@ class _ModuleSourceSearchScreenState extends State<ModuleSourceSearchScreen> {
   @override
   void dispose() {
     LayoutSettingsStore.instance.removeListener(_onLayoutStoreChanged);
-    _debounce?.cancel();
     _controller.dispose();
     _sourceScrollController.dispose();
     super.dispose();
@@ -224,7 +222,6 @@ class _ModuleSourceSearchScreenState extends State<ModuleSourceSearchScreen> {
   }
 
   Future<void> _doSearch(String query) async {
-    _debounce?.cancel();
     final trimmed = query.trim();
     if (trimmed.isEmpty) {
       if (mounted) {
@@ -239,59 +236,56 @@ class _ModuleSourceSearchScreenState extends State<ModuleSourceSearchScreen> {
       return;
     }
 
-    _debounce = Timer(const Duration(milliseconds: 300), () async {
-      if (!mounted) return;
-      final sourceRepo = context.read<SourceRepository>();
-      final sources = sourceRepo.byType(widget.sourceType);
-      _ensureSelectionInit(sources);
-      final checked =
-          sources.where((s) => _checkedSourceIds.contains(s.id)).toList();
-      final bool mediaServerActive =
-          widget.sourceType == SourceType.animeSource && _mediaServerChecked;
-      // 一个源都没勾选（且媒体服务器未勾选）：提示先勾选，不发起请求。
-      if (checked.isEmpty && !mediaServerActive) {
-        if (mounted) {
-          setState(() {
-            _results = const <MediaItem>[];
-            _resultIds.clear();
-            _loading = false;
-            _needSource = true;
-            _sourcesWithMore.clear();
-          });
-        }
-        return;
+    final sourceRepo = context.read<SourceRepository>();
+    final sources = sourceRepo.byType(widget.sourceType);
+    _ensureSelectionInit(sources);
+    final checked =
+        sources.where((s) => _checkedSourceIds.contains(s.id)).toList();
+    final bool mediaServerActive =
+        widget.sourceType == SourceType.animeSource && _mediaServerChecked;
+    // 一个源都没勾选（且媒体服务器未勾选）：提示先勾选，不发起请求。
+    if (checked.isEmpty && !mediaServerActive) {
+      if (mounted) {
+        setState(() {
+          _results = const <MediaItem>[];
+          _resultIds.clear();
+          _loading = false;
+          _needSource = true;
+          _sourcesWithMore.clear();
+        });
       }
-      final int gen = ++_searchGen;
-      // 本地内容（导入 + 已下载）即时匹配，先入列表；网络结果由各源
-      // 并发检索、先完成先并入（_runSourceSearch）。
-      final localResults = _searchLocalContent(trimmed);
-      setState(() {
-        _loading = checked.isNotEmpty;
-        _needSource = false;
-        _page = 1;
-        _networkKeyword = null;
-        _sourcesWithMore.clear();
-        _results = List<MediaItem>.of(localResults);
-        _resultIds
-          ..clear()
-          ..addAll(localResults.map((e) => e.id));
-      });
-      if (checked.isEmpty) return;
-      // 简繁兜底仅在勾选单个源时启用（与原单源搜索口径一致）。
-      final bool cnFallback = checked.length == 1;
-      await Future.wait(<Future<int>>[
-        for (final source in checked)
-          _runSourceSearch(
-            source,
-            trimmed,
-            gen,
-            page: 1,
-            cnFallback: cnFallback,
-          ),
-      ]);
-      if (!mounted || gen != _searchGen) return;
-      setState(() => _loading = false);
+      return;
+    }
+    final int gen = ++_searchGen;
+    // 本地内容（导入 + 已下载）即时匹配，先入列表；网络结果由各源
+    // 并发检索、先完成先并入（_runSourceSearch）。
+    final localResults = _searchLocalContent(trimmed);
+    setState(() {
+      _loading = checked.isNotEmpty;
+      _needSource = false;
+      _page = 1;
+      _networkKeyword = null;
+      _sourcesWithMore.clear();
+      _results = List<MediaItem>.of(localResults);
+      _resultIds
+        ..clear()
+        ..addAll(localResults.map((e) => e.id));
     });
+    if (checked.isEmpty) return;
+    // 简繁兜底仅在勾选单个源时启用（与原单源搜索口径一致）。
+    final bool cnFallback = checked.length == 1;
+    await Future.wait(<Future<int>>[
+      for (final source in checked)
+        _runSourceSearch(
+          source,
+          trimmed,
+          gen,
+          page: 1,
+          cnFallback: cnFallback,
+        ),
+    ]);
+    if (!mounted || gen != _searchGen) return;
+    setState(() => _loading = false);
   }
 
   /// 单个源的一次检索（第 [page] 页）：完成后立即把结果并入列表并刷新，
