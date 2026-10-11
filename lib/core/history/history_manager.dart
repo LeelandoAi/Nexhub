@@ -260,17 +260,23 @@ class HistoryManager extends ChangeNotifier {
     final type = sourceType ?? item.sourceType ?? SourceType.animeSource;
     final list = _cache.putIfAbsent(type, () => <HistoryEntry>[]);
 
-    // 移除旧记录（去重）
-    list.removeWhere((e) => e.id == item.id);
+    // 旧记录（去重 + 元数据继承源）：本地/下载入口重建的条目缺封面等
+    // 元数据，需要从旧条目补全（见 [_mergeFromPrevious]）。
+    final prevIdx = list.indexWhere((e) => e.id == item.id);
+    final HistoryEntry? prev = prevIdx >= 0 ? list[prevIdx] : null;
+    if (prevIdx >= 0) list.removeAt(prevIdx);
+
     // 添加到末尾（最新的在后面，读取时 reversed）。
     // 新条目经 fromMediaItem 构建，hidden 恒为 false——因此已软删除（被清历史）
     // 的条目在用户重新进入该作品（详情/阅读器记录浏览）时会自动复原可见
     // （重读自动复原），进度与阅读位置不受影响。
-    final entry = HistoryEntry.fromMediaItem(
+    final fresh = HistoryEntry.fromMediaItem(
       item,
       lastChapter: lastChapter,
       sourceType: type,
     );
+    final entry =
+        prev == null ? fresh : _mergeFromPrevious(fresh, prev);
     list.add(entry);
 
     // 超出上限淘汰
@@ -282,6 +288,41 @@ class HistoryManager extends ChangeNotifier {
     notifyListeners();
     // 离线封面缓存（best-effort，不阻塞 UI）。
     unawaited(_cacheCoverFor(entry));
+  }
+
+  /// 用旧条目补全新条目缺失的字段（仅补空，不覆盖新值）。
+  ///
+  /// 从本地书架/下载作品打开时，阅读器只带 id/title/sourceId，条目经
+  /// fromMediaItem 重建会把旧记录的封面、详情链接等整体抹掉——典型症状：
+  /// 下载作品在本地书架有封面、历史 Tab 只剩首字占位图（两边只能显示一个）。
+  /// 这里对缺失字段回退旧值：
+  /// - 封面：新条目无 coverUrl 时继承旧的 [HistoryEntry.coverUrl] 与
+  ///   [HistoryEntry.localCoverPath]（及失败墓碑，防启动回填重试死链）；
+  ///   新条目带封面（在线浏览）时走正常缓存流程，localCoverPath 置空。
+  /// - 详情链接 / 分类 / 状态 / 导演 / 主演 / 最近章节：仅在新值为空时继承，
+  ///   供历史 Tab 副标题、书架筛选与详情页回跳使用。
+  HistoryEntry _mergeFromPrevious(HistoryEntry fresh, HistoryEntry prev) {
+    final bool noCover = fresh.coverUrl == null || fresh.coverUrl!.isEmpty;
+    return HistoryEntry(
+      id: fresh.id,
+      title: fresh.title,
+      coverUrl: noCover ? (fresh.coverUrl ?? prev.coverUrl) : fresh.coverUrl,
+      sourceId: (fresh.sourceId?.isNotEmpty ?? false)
+          ? fresh.sourceId
+          : prev.sourceId,
+      sourceType: fresh.sourceType,
+      detailUrl: fresh.detailUrl ?? prev.detailUrl,
+      viewedAt: fresh.viewedAt,
+      lastChapter: fresh.lastChapter ?? prev.lastChapter,
+      category: fresh.category ?? prev.category,
+      status: fresh.status ?? prev.status,
+      director: fresh.director ?? prev.director,
+      actors: fresh.actors ?? prev.actors,
+      localCoverPath: noCover ? prev.localCoverPath : null,
+      // 重读自动复原可见（与 fromMediaItem 的 hidden=false 语义一致）。
+      hidden: false,
+      coverFetchFailed: noCover && prev.coverFetchFailed,
+    );
   }
 
   /// 写入预构建的历史条目（媒体服务器等外部体系用）。
@@ -336,8 +377,11 @@ class HistoryManager extends ChangeNotifier {
       final coverDir = Directory(p.join(dir.path, 'history_covers'));
       await coverDir.create(recursive: true);
       final ext = _extFromUrl(url);
-      final target =
-          File(p.join(coverDir.path, '${entry.id.hashCode}_cover$ext'));
+      // 文件名带模块前缀命名空间：媒体源与漫画源大量使用纯数字 id，
+      // 两模块不同作品撞同 id 时若共用文件名，封面会互相串图
+      // （漫画历史里出现媒体海报、媒体历史里出现漫画封面）。
+      final target = File(p.join(coverDir.path,
+          '${entry.sourceType.apiName}_${entry.id.hashCode}_cover$ext'));
       if (await target.exists()) {
         // 已缓存：直接回写路径，避免重复下载。
         _replaceEntryInCache(entry.copyWith(localCoverPath: target.path));

@@ -110,6 +110,7 @@ class NovelHomeScreen extends StatelessWidget {
               id: item.id,
               title: item.title,
               sourceId: item.sourceId ?? '',
+              coverUrl: item.coverUrl,
               workDir: localPath,
               kind: LocalMediaKind.text,
             );

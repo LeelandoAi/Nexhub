@@ -286,6 +286,7 @@ class _DownloadedGroupScreenState extends State<DownloadedGroupScreen> {
       id: task.contentId,
       title: task.title,
       sourceId: task.sourceId ?? '',
+      coverUrl: task.localCoverPath ?? task.coverUrl,
       workDir: workDir,
       kind: kind,
       initialIndex: index,

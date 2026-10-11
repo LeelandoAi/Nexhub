@@ -372,4 +372,96 @@ void main() {
       expect(m.historyFor(SourceType.novelSource), isEmpty);
     });
   });
+
+  group('HistoryManager addHistory 元数据继承（本地/下载入口不抹掉封面）', () {
+    HistoryManager newManager() => HistoryManager(backend: InMemoryBackend());
+
+    test('在线浏览后再从本地（无封面条目）记录：封面与元数据保留', () async {
+      final m = newManager();
+      await m.addHistory(
+        MediaItem(
+          id: 'work-1',
+          title: 'Online Work',
+          coverUrl: 'https://example.com/cover.jpg',
+          sourceId: 'src-1',
+          detailUrl: 'https://example.com/detail/1',
+          tags: const <String>['Fantasy'],
+          status: 'Ongoing',
+        ),
+        lastChapter: '第10话',
+        sourceType: SourceType.mangaSource,
+      );
+
+      // 模拟从本地书架打开下载作品：阅读器只带 id/title/sourceId，
+      // 且无最近章节（详情页 initState 同样无 lastChapter）。
+      await m.addHistory(
+        MediaItem(id: 'work-1', title: 'Online Work', sourceId: 'src-1'),
+        sourceType: SourceType.mangaSource,
+      );
+
+      final entry = m.findById('work-1', sourceType: SourceType.mangaSource);
+      expect(entry, isNotNull);
+      expect(entry!.coverUrl, 'https://example.com/cover.jpg');
+      expect(entry.detailUrl, 'https://example.com/detail/1');
+      expect(entry.category, 'Fantasy');
+      expect(entry.status, 'Ongoing');
+      expect(entry.lastChapter, '第10话');
+      expect(entry.sourceId, 'src-1');
+    });
+
+    test('本地浏览（无封面）后再在线浏览：新封面生效，不继承旧缓存路径', () async {
+      final m = newManager();
+      await m.addHistory(
+        MediaItem(id: 'work-2', title: 'Local First', sourceId: 'src-2'),
+        sourceType: SourceType.mangaSource,
+      );
+      // 手动给当前条目一个本地缓存路径，模拟旧缓存存在。
+      final stale = m.findById('work-2', sourceType: SourceType.mangaSource)!;
+      await m.addEntryRaw(
+        stale.copyWith(localCoverPath: '/cache/old_cover.jpg'),
+        type: SourceType.mangaSource,
+      );
+
+      await m.addHistory(
+        MediaItem(
+          id: 'work-2',
+          title: 'Local First',
+          coverUrl: 'https://example.com/new-cover.jpg',
+          sourceId: 'src-2',
+        ),
+        sourceType: SourceType.mangaSource,
+      );
+
+      final entry = m.findById('work-2', sourceType: SourceType.mangaSource);
+      expect(entry!.coverUrl, 'https://example.com/new-cover.jpg');
+      // 新封面走正常缓存流程：旧 localCoverPath 不继承（由 _cacheCoverFor 重建）。
+      expect(entry.localCoverPath, isNull);
+      expect(entry.coverFetchFailed, isFalse);
+    });
+
+    test('新条目 sourceId 为空时继承旧条目，viewedAt 取最新', () async {
+      final m = newManager();
+      await m.addHistory(
+        MediaItem(
+          id: 'work-3',
+          title: 'Kept Source',
+          coverUrl: 'https://example.com/c.jpg',
+          sourceId: 'src-3',
+        ),
+        sourceType: SourceType.animeSource,
+      );
+      final before =
+          m.findById('work-3', sourceType: SourceType.animeSource)!.viewedAt;
+
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      await m.addHistory(
+        MediaItem(id: 'work-3', title: 'Kept Source'),
+        sourceType: SourceType.animeSource,
+      );
+
+      final entry = m.findById('work-3', sourceType: SourceType.animeSource);
+      expect(entry!.sourceId, 'src-3');
+      expect(entry.viewedAt, greaterThan(before));
+    });
+  });
 }

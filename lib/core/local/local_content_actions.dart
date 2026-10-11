@@ -107,6 +107,7 @@ Future<void> openLocalEntry(BuildContext context, LocalContentEntry e) async {
             novelId: e.id,
             title: e.title,
             sourceId: '',
+            coverUrl: e.coverUrl,
             chapters: chapters,
             localChapterPaths: e.filePaths,
             restoreProgress: remember,
@@ -177,6 +178,7 @@ Future<void> openLocalEntry(BuildContext context, LocalContentEntry e) async {
             novelId: e.id,
             title: e.title,
             sourceId: '',
+            coverUrl: e.coverUrl,
             chapters: const <Episode>[],
             localEpubPath: e.path,
             restoreProgress: remember,
@@ -189,14 +191,15 @@ Future<void> openLocalEntry(BuildContext context, LocalContentEntry e) async {
     // resolveSafUri 后按内容解析（本地小说绝大多数为 txt）。
     Navigator.of(context).push(
       AppPageRoute<void>(
-        builder: (_) => NovelReaderScreen(
-          novelId: e.id,
-          title: e.title,
-          sourceId: '',
-          chapters: const <Episode>[],
-          localTextPath: e.path,
-          restoreProgress: remember,
-        ),
+      builder: (_) => NovelReaderScreen(
+        novelId: e.id,
+        title: e.title,
+        sourceId: '',
+        coverUrl: e.coverUrl,
+        chapters: const <Episode>[],
+        localTextPath: e.path,
+        restoreProgress: remember,
+      ),
       ),
     );
     return;
@@ -218,6 +221,8 @@ Future<void> openLocalEntry(BuildContext context, LocalContentEntry e) async {
 /// 上次存档拉回另一话（「点回之前读的话却进不去/进度丢失」的根因）；点选的
 /// 恰是存档在读话时仍会恢复页码（阅读器 _init 的 restoreProgress=false 分支）。
 /// null（默认，打开作品入口）= 继续阅读语义：恢复到上次读到的章 + 页。
+/// [coverUrl] 作品封面（下载封面本地路径或远程 URL）：阅读器写浏览历史时
+/// 随条目落库；不传则历史条目无封面——下载作品的历史记录只剩首字占位图。
 Future<void> openDownloadedWorkFolder(
   BuildContext context, {
   required String id,
@@ -226,6 +231,7 @@ Future<void> openDownloadedWorkFolder(
   required String workDir,
   required LocalMediaKind kind,
   int? initialIndex,
+  String? coverUrl,
 }) async {
   final bool remember = GeneralSettingsStore.instance.settings.rememberPosition;
   // 点选入口（initialIndex 非 null）：不恢复存档章，尊重点选；继续阅读入口恢复。
@@ -307,6 +313,7 @@ Future<void> openDownloadedWorkFolder(
             novelId: id,
             title: title,
             sourceId: sourceId,
+            coverUrl: coverUrl,
             chapters: chapters,
             localChapterPaths: filePaths,
             initialChapterIndex: start,
@@ -334,6 +341,7 @@ Future<void> openDownloadedWorkFolder(
             comicId: id,
             title: title,
             sourceId: sourceId,
+            coverUrl: coverUrl,
             chapters: chapters,
             localChapterDirs: isDirs ? filePaths : null,
             localArchivePaths: isDirs ? null : filePaths,
@@ -485,6 +493,7 @@ Future<void> openSearchResultEntry(
         id: item.id,
         title: item.title,
         sourceId: item.sourceId ?? '',
+        coverUrl: item.coverUrl,
         workDir: localPath,
         kind: kind,
       );
@@ -567,6 +576,7 @@ void _pushComicReader(
         comicId: e.id,
         title: e.title,
         sourceId: '',
+        coverUrl: e.coverUrl,
         chapters: chapters,
         localImages: localImages,
         localCbzPath: localCbzPath,
