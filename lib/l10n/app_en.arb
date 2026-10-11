@@ -1124,6 +1124,8 @@
   "playerRetry": "Retry",
   "playerNextEpisode": "Next episode",
   "playerPreviousEpisode": "Previous episode",
+  "playerNextFrame": "Next frame",
+  "playerPreviousFrame": "Previous frame",
   "playerShare": "Share",
   "danmakuFilterKeywords": "Filter keywords",
   "danmakuTimeOffset": "Time offset (s)",

@@ -109,8 +109,8 @@ extension _VideoGestures on _VideoPlayerScreenState {
   /// 使用 media_kit 的 [Player.screenshot] 截取当前帧，
   /// 保存为 PNG 到截图目录（默认 Documents/screenshots 或用户自定义）。
 
-  /// 处理键盘事件：空格=播放/暂停，左右=seek ±10s，F=全屏，M=静音。
-  /// 返回 `KeyEventResult.handled` 表示已处理，否则 `ignored`。
+  /// 处理键盘事件：空格=播放/暂停，左右=seek ±10s，逗号/句号=逐帧步进，
+  /// F=全屏，M=静音。返回 `KeyEventResult.handled` 表示已处理，否则 `ignored`。
   KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
     // 仅响应 key down（避免重复触发），且锁定时不响应（除解锁外）。
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
@@ -148,6 +148,17 @@ extension _VideoGestures on _VideoPlayerScreenState {
       final target = (_position + const Duration(seconds: 10));
       final clamped = target > _duration ? _duration : target;
       unawaited(_onSeek(clamped));
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.comma) {
+      if (_controller.isLocked) return KeyEventResult.handled;
+      // 逐帧后退：mpv 命令自带「先暂停再步进」，播放中按下即转暂停态。
+      unawaited(_controller.frameStep(backward: true));
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.period) {
+      if (_controller.isLocked) return KeyEventResult.handled;
+      unawaited(_controller.frameStep(backward: false));
       return KeyEventResult.handled;
     }
     if (key == LogicalKeyboardKey.keyF) {

@@ -340,6 +340,59 @@ class _ControlButton extends StatelessWidget {
   }
 }
 
+/// 逐帧步进按钮（上一帧 / 下一帧）：半透明圆底小圆钮，悬浮于中央大播放键两侧。
+///
+/// 仅暂停态且控制层可见时显示。隐藏时渲染 SizedBox.shrink 而不是从 Row 中
+/// 移除——固定三槽位保证中央播放键的 State 不因子树重排被重建（其暂停→播放
+/// 形变动画依赖跨状态保持挂载）。左右对称水平内边距维持中央按钮居中。
+class _FrameStepButton extends StatelessWidget {
+  const _FrameStepButton({
+    super.key,
+    required this.visible,
+    required this.backward,
+    required this.tooltip,
+    required this.onTap,
+  });
+
+  final bool visible;
+  final bool backward;
+  final String tooltip;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!visible) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      child: Tooltip(
+        message: tooltip,
+        child: Material(
+          color: Colors.black45,
+          shape: const CircleBorder(),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: () {
+              AppHaptics.light();
+              onTap();
+            },
+            child: SizedBox(
+              width: 44,
+              height: 44,
+              child: Icon(
+                backward
+                    ? Icons.navigate_before_rounded
+                    : Icons.navigate_next_rounded,
+                color: Colors.white,
+                size: 26,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// 横向滚动文字（Marquee）：当文本超出可用宽度时自动循环滚动；
 /// 文本能完整显示时静止不动（无动画开销）。
 ///

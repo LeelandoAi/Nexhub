@@ -2443,6 +2443,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get playerPreviousEpisode => 'Previous episode';
 
   @override
+  String get playerNextFrame => 'Next frame';
+
+  @override
+  String get playerPreviousFrame => 'Previous frame';
+
+  @override
   String get playerShare => 'Share';
 
   @override

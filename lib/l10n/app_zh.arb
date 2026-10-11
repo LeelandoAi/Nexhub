@@ -1111,6 +1111,8 @@
   "playerRetry": "重试",
   "playerNextEpisode": "下一集",
   "playerPreviousEpisode": "上一集",
+  "playerNextFrame": "下一帧",
+  "playerPreviousFrame": "上一帧",
   "playerShare": "分享",
   "danmakuFilterKeywords": "关键词过滤",
   "danmakuTimeOffset": "时间偏移(秒)",

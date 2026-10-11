@@ -3902,15 +3902,17 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
             final String msg = (_isDirectMode && snap.error != null)
                 ? snap.error.toString()
                 : l10n.playerVideoExpired;
-            return AppErrorState(
-              message: msg,
-              // 注意：setState 的回调必须是 void，不能写 `() => _initFuture = _init()`
-              // （赋值表达式会返回 _init() 这个 Future，触发「setState callback returned a Future」崩溃）。
-              onRetry: () {
-                setState(() {
-                  _initFuture = _init();
-                });
-              },
+            return _buildErrorPage(
+              AppErrorState(
+                message: msg,
+                // 注意：setState 的回调必须是 void，不能写 `() => _initFuture = _init()`
+                // （赋值表达式会返回 _init() 这个 Future，触发「setState callback returned a Future」崩溃）。
+                onRetry: () {
+                  setState(() {
+                    _initFuture = _init();
+                  });
+                },
+              ),
             );
           }
           return _buildPlayer(l10n);
@@ -3919,13 +3921,56 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     );
   }
 
+  /// 错误页（解析 / 抽取失败、链接失效）：黑底错误态 + 顶部返回栏。
+  ///
+  /// 错误页没有控制层，而播放器常以全屏沉浸方式打开（桌面端尤其没有系统
+  /// 返回手势），不提供显式返回入口时用户只能杀应用——顶部保留一条仅含
+  /// 返回键的半透明渐变栏（样式对齐播放顶栏）。
+  Widget _buildErrorPage(Widget child) {
+    return Stack(
+      children: <Widget>[
+        child,
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          child: Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: <Color>[Colors.black54, Colors.transparent],
+              ),
+            ),
+            padding: EdgeInsets.only(top: MediaQuery.of(context).padding.top),
+            child: Row(
+              children: <Widget>[
+                IconButton(
+                  key: const Key('player_error_back'),
+                  icon: const Icon(
+                    Icons.arrow_back_rounded,
+                    color: Colors.white,
+                    size: 20,
+                  ),
+                  onPressed: () => Navigator.of(context).pop(),
+                  visualDensity: VisualDensity.compact,
+                  constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                  padding: const EdgeInsets.all(7),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildPlayer(AppLocalizations l10n) {
     // 自动重连耗尽：展示「视频链接已失效，点击重试」覆盖层，由用户手动触发
     // 重新解析 + 重新打开播放器（拿到未过期的新直链）。
     if (_reconnectExhausted) {
-      return AppErrorState(
-        message: l10n.playerVideoExpired,
-        onRetry: _manualRetry,
+      return _buildErrorPage(
+        AppErrorState(message: l10n.playerVideoExpired, onRetry: _manualRetry),
       );
     }
     // 包裹 Focus 以响应键盘快捷键。
@@ -4262,19 +4307,43 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                 // 中央播放/暂停按钮：由 _isPlaying/_uiVisible 驱动的状态机——
                 // 暂停态常显（毛玻璃+呼吸光环），播放/暂停切换有图标形变动画
                 // （暂停→播放：暂停符号弹出后淡出；播放→暂停：弹性入场）。
+                // 两侧逐帧按钮（暂停时显示）：固定三槽位 Row，中央按钮恒居
+                // 中间槽位——不能用条件子树切换，否则其 State 被重建、形变
+                // 动画（依赖跨状态保持挂载）会被打断。
                 if (!pipMode)
                   Align(
                     alignment: const Alignment(0, -0.15),
-                    child: _CenterPlayButton(
-                      key: const Key('player_play_pause'),
-                      isPlaying: _isPlaying,
-                      uiVisible: _uiVisible,
-                      onToggle: () {
-                        // 用户手动重播则取消进行中的连播倒计时。
-                        _cancelAutoNextCountdown();
-                        _controller.play();
-                        setState(() => _isPlaying = true);
-                      },
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        _FrameStepButton(
+                          key: const Key('player_prev_frame'),
+                          visible: !_isPlaying && _uiVisible,
+                          backward: true,
+                          tooltip: l10n.playerPreviousFrame,
+                          onTap: () => unawaited(
+                              _controller.frameStep(backward: true)),
+                        ),
+                        _CenterPlayButton(
+                          key: const Key('player_play_pause'),
+                          isPlaying: _isPlaying,
+                          uiVisible: _uiVisible,
+                          onToggle: () {
+                            // 用户手动重播则取消进行中的连播倒计时。
+                            _cancelAutoNextCountdown();
+                            _controller.play();
+                            setState(() => _isPlaying = true);
+                          },
+                        ),
+                        _FrameStepButton(
+                          key: const Key('player_next_frame'),
+                          visible: !_isPlaying && _uiVisible,
+                          backward: false,
+                          tooltip: l10n.playerNextFrame,
+                          onTap: () => unawaited(
+                              _controller.frameStep(backward: false)),
+                        ),
+                      ],
                     ),
                   ),
               ],

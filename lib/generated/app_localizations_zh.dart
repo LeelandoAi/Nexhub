@@ -2403,6 +2403,12 @@ class AppLocalizationsZh extends AppLocalizations {
   String get playerPreviousEpisode => '上一集';
 
   @override
+  String get playerNextFrame => '下一帧';
+
+  @override
+  String get playerPreviousFrame => '上一帧';
+
+  @override
   String get playerShare => '分享';
 
   @override

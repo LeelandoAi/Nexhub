@@ -432,6 +432,34 @@ class PlayerController extends ChangeNotifier {
     await _backend.player.seek(position);
   }
 
+ /// 逐帧步进：前进（默认）或后退一帧。
+ ///
+ /// mpv 内核走原生 `frame-step` / `frame-back-step` 命令——自带「先暂停
+ /// 再步进」语义，且按容器真实帧率精确走帧；playing 状态经既有流同步回 UI。
+ /// 非 mpv 内核（Web 等）或命令执行失败时，回退为按 1/24 秒的近似帧长 seek。
+  Future<void> frameStep({bool backward = false}) async {
+    final PlatformPlayer? platform = _backend.player.platform;
+    if (platform is NativePlayer) {
+      try {
+        await platform
+            .command(<String>[backward ? 'frame-back-step' : 'frame-step']);
+        return;
+      } on Object {
+      // 命令失败（如无视频轨）落回下方近似 seek，不向上抛。
+      }
+    }
+    final Duration step = Duration(milliseconds: 1000 ~/ 24);
+    final Duration position = _backend.player.state.position;
+    final Duration target = backward ? position - step : position + step;
+    final Duration clamped = target < Duration.zero
+        ? Duration.zero
+        : (target > _backend.player.state.duration
+            ? _backend.player.state.duration
+            : target);
+    await seek(clamped);
+  }
+
+
  /// 设置音量（0–100，自动 clamp），透传底层 [Player.setVolume]。
   Future<void> setVolume(double v) async {
     final clamped = v.clamp(0.0, 100.0);

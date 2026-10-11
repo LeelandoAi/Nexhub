@@ -4724,6 +4724,18 @@ abstract class AppLocalizations {
   /// **'Previous episode'**
   String get playerPreviousEpisode;
 
+  /// No description provided for @playerNextFrame.
+  ///
+  /// In en, this message translates to:
+  /// **'Next frame'**
+  String get playerNextFrame;
+
+  /// No description provided for @playerPreviousFrame.
+  ///
+  /// In en, this message translates to:
+  /// **'Previous frame'**
+  String get playerPreviousFrame;
+
   /// No description provided for @playerShare.
   ///
   /// In en, this message translates to:
