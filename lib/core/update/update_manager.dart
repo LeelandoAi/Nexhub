@@ -280,6 +280,11 @@ class UpdateManager extends ChangeNotifier {
   UpdateSettings _settings = const UpdateSettings.defaults();
   final Dio _dio = Dio();
 
+  /// 仅测试注入：替换底层 HTTP 适配器（用假适配器模拟各镜像的响应行为）。
+  @visibleForTesting
+  set adapterForTest(HttpClientAdapter adapter) =>
+      _dio.httpClientAdapter = adapter;
+
   UpdateStatus get status => _status;
   UpdateProgress get progress => _progress;
   UpdateReleaseInfo? get latestRelease => _latestRelease;
@@ -530,15 +535,44 @@ class UpdateManager extends ChangeNotifier {
   /// 3. HEAD 被拒（部分镜像只支持 GET）或状态不达标时降级为 Range GET
   /// （只取前 1KB），避免下载完整文件；
   /// 4. 仅 DNS/连接/超时等网络层错误，或（安装包路径下）持续的 4xx/5xx
-  /// 才判定为不可用。
+  /// 才判定为不可用；
+  /// 5. 每次尝试都有 [timeoutMs] 硬性总时限。receiveTimeout 只约束「两次
+  /// 收到数据之间」的间隔：对连上却永不回包的黑洞镜像、或忽略 Range 头
+  /// 整包回流安装包（数百 MB）的镜像，探测原本永远不会结束；而
+  /// `Future.timeout` 只是放弃等待、不掐断底层请求，会留下僵尸下载持续
+  /// 抢占带宽——下载前还要先等整轮镜像探测结束，「下载并安装」会被拖到
+  /// 永远开不了跑（表现为测速时无法下载新版本）。因此用定时器到点主动
+  /// cancel CancelToken，异常路径同样兜底取消。
   Future<int?> _probeUrl(String url, {int timeoutMs = 6000}) async {
     final Stopwatch sw = Stopwatch()..start();
     final Duration timeout = Duration(milliseconds: timeoutMs);
     // 真实下载文件路径才做状态码校验；页面路径宽减免得误伤「只代理文件」的镜像。
     final bool strict = url.contains('/releases/download/');
-    int? status;
-    try {
-      final Response<dynamic> resp = await _dio.head<dynamic>(
+
+    // 发起一次探测请求，返回 HTTP 状态码；超时/异常返回 null。
+    Future<int?> attempt(
+      Future<Response<dynamic>> Function(CancelToken token) fire,
+    ) async {
+      final CancelToken token = CancelToken();
+      final Timer kill = Timer(timeout, () {
+        if (!token.isCancelled) token.cancel('probe deadline');
+      });
+      try {
+        final Response<dynamic> resp = await fire(token).timeout(timeout);
+        return resp.statusCode;
+      } on Object {
+        // Future.timeout 先触发时 kill 定时器已被 finally 取消，这里补一刀，
+        // 确保底层请求一定被掐断，不留僵尸连接。
+        if (!token.isCancelled) token.cancel('probe aborted');
+        return null;
+      } finally {
+        kill.cancel();
+      }
+    }
+
+    // 1) HEAD 优先。
+    int? status = await attempt(
+      (token) => _dio.head<dynamic>(
         url,
         options: Options(
           receiveTimeout: timeout,
@@ -546,12 +580,9 @@ class UpdateManager extends ChangeNotifier {
           followRedirects: true,
           validateStatus: (_) => true,
         ),
-      );
-      status = resp.statusCode;
-    } on Object {
-      // HEAD 不支持/被拒：降级 Range GET。
-      status = null;
-    }
+        cancelToken: token,
+      ),
+    );
     if (status != null && status >= 200 && status < 400) {
       return sw.elapsedMilliseconds;
     }
@@ -559,8 +590,14 @@ class UpdateManager extends ChangeNotifier {
       // 页面路径不被代理（4xx/5xx）不代表镜像不可达。
       return sw.elapsedMilliseconds;
     }
-    try {
-      final Response<dynamic> resp = await _dio.get<dynamic>(
+
+    // 2) 降级 Range GET（只取前 1KB）。忽略 Range 的镜像会整包回包：
+    //    收到超过 1KB 立即取消请求（自卫），已有响应体流出本身就证明镜像
+    //    可达——代价是此时拿不到状态码，镜像以大体积错误页（4xx 且
+    //    body > 1KB）应答时会被误判为可达，后续下载的候选链兜底可纠正。
+    bool rangeIgnored = false;
+    status = await attempt(
+      (token) => _dio.get<dynamic>(
         url,
         options: Options(
           headers: const <String, String>{'Range': 'bytes=0-1023'},
@@ -569,10 +606,17 @@ class UpdateManager extends ChangeNotifier {
           followRedirects: true,
           validateStatus: (_) => true,
         ),
-      );
-      status = resp.statusCode;
-    } on Object {
-      return null;
+        cancelToken: token,
+        onReceiveProgress: (int received, int total) {
+          if (received > 1024 && !token.isCancelled) {
+            rangeIgnored = true;
+            token.cancel('range ignored, stop full-file probe');
+          }
+        },
+      ),
+    );
+    if (rangeIgnored) {
+      return sw.elapsedMilliseconds;
     }
     if (status != null && status >= 200 && status < 400) {
       return sw.elapsedMilliseconds;
@@ -824,14 +868,19 @@ class UpdateManager extends ChangeNotifier {
   ///
   /// 使用 [testUrl]（默认 GitHub 最新 release 页面）经镜像前缀转换后发起
   /// 探测（HEAD 优先，失败降级 Range GET，任意 HTTP 响应码视为可达），
-  /// 返回延迟毫秒；网络层不可达时抛出异常。
-  Future<int> probeMirror(String prefix, {String? testUrl}) async {
+  /// 返回延迟毫秒；网络层不可达时抛出异常。单次请求有 [timeoutMs] 毫秒
+  /// 硬性总时限（超时/黑洞连接会被主动取消，见 [_probeUrl]）。
+  Future<int> probeMirror(
+    String prefix, {
+    String? testUrl,
+    int timeoutMs = 6000,
+  }) async {
     final String actualUrl =
         testUrl ?? 'https://github.com/nexhub-app/nexhub/releases/latest';
     final String probeUrl = prefix == 'https://github.com/'
         ? actualUrl
         : actualUrl.replaceFirst('https://github.com/', prefix);
-    final int? ms = await _probeUrl(probeUrl);
+    final int? ms = await _probeUrl(probeUrl, timeoutMs: timeoutMs);
     if (ms == null) {
       throw Exception('mirror unreachable');
     }
@@ -854,26 +903,40 @@ class UpdateManager extends ChangeNotifier {
     return 'https://github.com/nexhub-app/nexhub/releases/latest';
   }
 
-  /// 从镜像列表中探测最快者（HEAD/Range GET 并发比较）。
+  /// 从镜像列表中探测最快者（HEAD/Range GET 分批限流并发比较）。
   ///
+  /// 分批并发（每批 8 个，与镜像设置页测速一致）：一次性并发 40+ 请求易
+  /// 触发连接数/系统资源限制，把本可用的镜像误判成超时——下载前的探测与
+  /// 页面自动测速同时进行时更容易踩中。整轮探测有总预算 [budget]：耗尽即
+  /// 用已测出的最快者开下，绝不让「下载并安装」卡在测速上——未测完的镜像
+  /// 仍会进入候选链逐个兜底重试。
   /// 全部不可用时返回 null（调用方应继续用候选链兜底，官方直连收尾）。
-  Future<({String name, String prefix})?> _pickFastestMirror(String url) async {
+  Future<({String name, String prefix})?> _pickFastestMirror(
+    String url, {
+    Duration budget = const Duration(seconds: 20),
+  }) async {
     final List<({String name, String prefix})> mirrors = _buildMirrorList();
     if (mirrors.isEmpty) return null;
     if (mirrors.length == 1) return mirrors.first;
 
-    final List<Future<int?>> probes = <Future<int?>>[
-      for (final m in mirrors) _probeMirror(m.prefix, url),
-    ];
-    final List<int?> latencies = await Future.wait(probes);
-
+    final Stopwatch sw = Stopwatch()..start();
+    const int batchSize = 8;
     int bestIndex = -1;
     int? bestLatency;
-    for (int i = 0; i < latencies.length; i++) {
-      final int? l = latencies[i];
-      if (l != null && (bestLatency == null || l < bestLatency)) {
-        bestLatency = l;
-        bestIndex = i;
+    for (int start = 0; start < mirrors.length; start += batchSize) {
+      // 预算耗尽：立即用当前最快者开下，不再让下载等测速。
+      if (sw.elapsed >= budget) break;
+      final int end = (start + batchSize).clamp(0, mirrors.length);
+      final List<int?> latencies = await Future.wait(<Future<int?>>[
+        for (final m in mirrors.sublist(start, end))
+          _probeMirror(m.prefix, url),
+      ]);
+      for (int i = 0; i < latencies.length; i++) {
+        final int? l = latencies[i];
+        if (l != null && (bestLatency == null || l < bestLatency)) {
+          bestLatency = l;
+          bestIndex = start + i;
+        }
       }
     }
     if (bestIndex < 0) return null;
@@ -883,6 +946,15 @@ class UpdateManager extends ChangeNotifier {
     _progress = _progress.copyWith(mirrorName: best.name);
     return best;
   }
+
+  /// 仅测试：以可注入预算挑选最快镜像（生产路径在 downloadInstaller 内部
+  /// 调用 [_pickFastestMirror]，预算固定 20 秒）。
+  @visibleForTesting
+  Future<({String name, String prefix})?> pickFastestMirrorForTest(
+    String url, {
+    Duration budget = const Duration(seconds: 20),
+  }) =>
+      _pickFastestMirror(url, budget: budget);
 
   /// 清理下载目录下其他版本的残留子目录（best-effort，失败忽略）。
   ///
