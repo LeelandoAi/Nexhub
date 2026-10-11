@@ -755,7 +755,10 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
           final outcome = await navigateToSnifferCapture(
             context,
             url: pageUrl,
-            timeout: const Duration(seconds: 12),
+            // 15s：慢链路（MacCMS 播放页 → 跨域播放器 iframe → hls.js）
+            // 实测可到 10s+，12s 会把本可命中的嗅探掐死在 iframe 加载期；
+            // 捕获即提前返回，不会拖慢正常页面。
+            timeout: const Duration(seconds: 15),
             autoPopOnTimeout: true,
           );
           if (outcome?.hasExtractedUrl == true &&

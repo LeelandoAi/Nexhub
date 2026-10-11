@@ -152,11 +152,12 @@ class VideoLinkSniffer {
     final sniffer = _HeadlessSniffer();
     final capture = Completer<SniffedMedia?>();
     sniffer.engine.onUpdate = () {
-      for (final m in sniffer.videos) {
-        if (m.url.startsWith('http://') || m.url.startsWith('https://')) {
-          if (!capture.isCompleted) capture.complete(m);
-          break;
-        }
+      // 排序选优而非取首个：播放列表/整片优先于分片，带扩展名优先于
+      // 无扩展名（无扩展名常是广告占位/统计/中转壳，抢在真直链之前捕获）。
+      final best = SnifferEngine.bestPlayable(sniffer.videos);
+      if (best != null &&
+          (best.url.startsWith('http://') || best.url.startsWith('https://'))) {
+        if (!capture.isCompleted) capture.complete(best);
       }
     };
 
@@ -378,6 +379,17 @@ class _HeadlessSniffer {
         if (!_created.isCompleted) _created.complete(c);
       },
       onLoadResource: (c, r) => bridge.onResource(r.url?.toString()),
+      // 网络层被动捕获（Android）：不依赖 JS 钩子注入成功，覆盖 iframe 内
+      // 播放器、Worker fetch 等钩子盲区。与可见嗅探页（验证屏）同策略。
+      shouldInterceptRequest: (c, request) async {
+        String? ref;
+        final hs = request.headers;
+        if (hs != null) {
+          ref = hs['Referer'] ?? hs['referer'];
+        }
+        bridge.onRequest(request.url.toString(), ref);
+        return null;
+      },
       onLoadStart: (c, uri) => bridge.onRequest(uri?.toString(), _referer(headers)),
       onLoadStop: (c, uri) async {
         if (!_pageLoaded.isCompleted) _pageLoaded.complete();

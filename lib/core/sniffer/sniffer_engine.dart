@@ -170,6 +170,44 @@ class SnifferEngine {
     onUpdate?.call();
   }
 
+  /// 从候选中选出最适合外部播放/下载的直链（无候选返回 null）。
+  ///
+  /// 排序规则（高分优先，同分保持先捕获者优先）：
+  /// - 播放列表/整片（m3u8/m3u/mpd/mp4/webm/flv/mkv/mov/avi/3gp）> 分片（ts/m4s）
+  ///   > 无扩展名但 MIME 判定为视频 > 其它；
+  /// - blob:/mediasource: 只能页内播放，恒垫底（调用方按需过滤）。
+  /// 无扩展名地址常是广告占位 / 统计 / 中转壳，且可能抢在真直链之前被捕获——
+  /// 排序选优避免它冒充解析结果。
+  static SniffedMedia? bestPlayable(Iterable<SniffedMedia> candidates) {
+    SniffedMedia? best;
+    var bestRank = -1;
+    for (final m in candidates) {
+      final r = _playableRank(m);
+      if (r > bestRank) {
+        bestRank = r;
+        best = m;
+      }
+    }
+    return best;
+  }
+
+  static int _playableRank(SniffedMedia m) {
+    final lower = m.url.toLowerCase();
+    if (lower.startsWith('blob:') || lower.startsWith('mediasource:')) {
+      return -1;
+    }
+    final ext = _mediaExtRe.firstMatch(lower)?.group(1);
+    if (ext != null) {
+      if (ext == 'ts' || ext == 'm4s') return 2;
+      // 音频扩展名（mp3/aac/…）不当视频候选，落 other 一档。
+      const audioExt = <String>{'mp3', 'aac', 'wav', 'ogg', 'm4a', 'oga'};
+      if (audioExt.contains(ext)) return 0;
+      return 3;
+    }
+    if (m.kind == MediaKind.video) return 1;
+    return 0;
+  }
+
   /// 按筛选维度返回子集。
   List<SniffedMedia> filtered(SniffFilter filter) {
     switch (filter) {
