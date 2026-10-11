@@ -56,31 +56,6 @@ add_subdirectory(${FLUTTER_MANAGED_DIR})
 # Application build; see runner/CMakeLists.txt.
 add_subdirectory("runner")
 
-# Bundle the native ECH proxy engine (built by android/rust/build-windows.sh) so
-# that dart:ffi's DynamicLibrary.open("echproxy.dll") resolves it next to the exe.
-# 注意：只能用 install()（与下方其余打包规则一致），不能在此层对 ${BINARY_NAME}
-# 挂 add_custom_command(TARGET ...) —— 该 target 创建于 runner/ 子目录，CMake
-# 要求 POST_BUILD 与目标同目录，否则报 "TARGET was not created in this directory"。
-# 来源优先级：windows/dll/echproxy.dll（build-windows.sh 的产物落点，已入库，
-# CI checkout 即有）> android/rust/target/ 下的 cargo 原生产物（gitignored，仅
-# 本地刚重编尚未同步到 windows/dll 时存在）。此前只查后者，CI 上因目录不存在
-# 被 if(EXISTS) 静默跳过 → 发布包缺 ECH 引擎；本地因产物存在而正常，从未暴露。
-set(ECHPROXY_DLL "${CMAKE_CURRENT_SOURCE_DIR}/dll/echproxy.dll")
-if(NOT EXISTS "${ECHPROXY_DLL}")
-  set(ECHPROXY_DLL
-    "${CMAKE_CURRENT_SOURCE_DIR}/../android/rust/target/x86_64-pc-windows-msvc/release/echproxy.dll")
-endif()
-if(EXISTS "${ECHPROXY_DLL}")
-  message(STATUS "Bundling ECH engine: ${ECHPROXY_DLL}")
-  install(FILES "${ECHPROXY_DLL}" DESTINATION "${CMAKE_INSTALL_PREFIX}"
-    COMPONENT Runtime OPTIONAL)
-else()
-  message(WARNING
-    "echproxy.dll 未找到（windows/dll/ 与 android/rust/target/ 均缺失），"
-    "本次构建不会打包 ECH 本地引擎，桌面端 ECH 将不可用")
-endif()
-
-
 # Generated plugin build rules, which manage building the plugins and adding
 # them to the application.
 include(flutter/generated_plugins.cmake)
@@ -102,6 +77,34 @@ set(INSTALL_BUNDLE_LIB_DIR "${CMAKE_INSTALL_PREFIX}")
 
 install(TARGETS ${BINARY_NAME} RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}"
   COMPONENT Runtime)
+
+# Bundle the native ECH proxy engine (built by android/rust/build-windows.sh) so
+# that dart:ffi's DynamicLibrary.open("echproxy.dll") resolves it next to the exe.
+# 注意：只能用 install()（与上方其余打包规则一致），不能对创建于 runner/ 子目录的
+# ${BINARY_NAME} 在此层挂 add_custom_command(TARGET ...) —— CMake 要求 POST_BUILD
+# 与目标同目录，否则报 "TARGET was not created in this directory"。
+# 且必须位于上方 set(CMAKE_INSTALL_PREFIX "${BUILD_BUNDLE_DIR}") 之后：install()
+# 的 DESTINATION 在声明处展开 ${CMAKE_INSTALL_PREFIX}，若在此前声明会把规则固化成
+# 默认前缀 C:/Program Files/<name>，CI（全新缓存）上 DLL 就装进系统目录而非
+# Release 产物目录；本地因 CMakeCache 缓存了旧前缀而侥幸正常。
+# 来源优先级：windows/dll/echproxy.dll（build-windows.sh 的产物落点，已入库，
+# CI checkout 即有）> android/rust/target/ 下的 cargo 原生产物（gitignored，仅
+# 本地刚重编尚未同步到 windows/dll 时存在）。此前只查后者，CI 上因目录不存在
+# 被 if(EXISTS) 静默跳过 → 发布包缺 ECH 引擎；本地因产物存在而正常，从未暴露。
+set(ECHPROXY_DLL "${CMAKE_CURRENT_SOURCE_DIR}/dll/echproxy.dll")
+if(NOT EXISTS "${ECHPROXY_DLL}")
+  set(ECHPROXY_DLL
+    "${CMAKE_CURRENT_SOURCE_DIR}/../android/rust/target/x86_64-pc-windows-msvc/release/echproxy.dll")
+endif()
+if(EXISTS "${ECHPROXY_DLL}")
+  message(STATUS "Bundling ECH engine: ${ECHPROXY_DLL}")
+  install(FILES "${ECHPROXY_DLL}" DESTINATION "${CMAKE_INSTALL_PREFIX}"
+    COMPONENT Runtime OPTIONAL)
+else()
+  message(WARNING
+    "echproxy.dll 未找到（windows/dll/ 与 android/rust/target/ 均缺失），"
+    "本次构建不会打包 ECH 本地引擎，桌面端 ECH 将不可用")
+endif()
 
 install(FILES "${FLUTTER_ICU_DATA_FILE}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   COMPONENT Runtime)
