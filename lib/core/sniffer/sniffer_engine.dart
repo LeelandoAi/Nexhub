@@ -79,9 +79,20 @@ class SnifferEngine {
     }
     _rejected.remove(u);
 
+    var mediaKind = SniffedMedia.inferKind(u, mime);
+    // 媒体元素 src 上报（kind=='media'）而无扩展名/响应 MIME 可推断时，该地址
+    // 就是 <video>/<audio> 此刻正在播放的资源——提升为 video，避免被视频过滤
+    // 漏掉（真直链常无扩展名，如 233 精品线：真实内容只对页面内嵌 iframe 上下文
+    // 下发，且直链不带媒体扩展名，曾被判 other 导致嗅探永不命中）。
+    if (mediaKind == MediaKind.other &&
+        kind == 'media' &&
+        (lower.startsWith('http://') || lower.startsWith('https://'))) {
+      mediaKind = MediaKind.video;
+    }
+
     final media = SniffedMedia(
       url: u,
-      kind: SniffedMedia.inferKind(u, mime),
+      kind: mediaKind,
       typeLabel: SniffedMedia.inferTypeLabel(u, mime),
       sourceTag: (kind == null || kind.isEmpty) ? null : kind,
       referer: (referer == null || referer.isEmpty) ? null : referer,

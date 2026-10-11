@@ -339,9 +339,19 @@
   // - 'webview'：仅 blob:/mediasource:/mse，只能在当前页面内播放（location.href）。
   window.__sniffBestPlay = function () {
     try {
-      for (var i = 0; i < log.length; i++) {
-        var e = log[i];
+      var i, e;
+      for (i = 0; i < log.length; i++) {
+        e = log[i];
         if (isMediaHttp(e.u)) {
+          return { mode: 'http', url: e.u, ref: e.r || '' };
+        }
+      }
+      // 媒体元素 src 层：无扩展名直链（<video>/<audio> 正在播放的资源本身
+      // 就是可播目标，真链常不带扩展名）。排在扩展名命中之后。
+      for (i = 0; i < log.length; i++) {
+        e = log[i];
+        if (e.k === 'media' &&
+            (e.u.indexOf('http://') === 0 || e.u.indexOf('https://') === 0)) {
           return { mode: 'http', url: e.u, ref: e.r || '' };
         }
       }

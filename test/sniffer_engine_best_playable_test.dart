@@ -73,4 +73,36 @@ void main() {
       expect(best!.url, 'https://cdn.example.com/video.mp4');
     });
   });
+
+  group('SnifferEngine.add 媒体元素无扩展名直链提权', () {
+    test('kind=media 的无扩展名 http 直链提升为 video（233 精品线真链形态）', () async {
+      final engine = SnifferEngine();
+      final ok = await engine.add(
+        'https://cdn.example.com/video/tos/alisg/oICbAA/?a=1&mime_type=video_mp4',
+        kind: 'media',
+      );
+      expect(ok, isTrue);
+      expect(engine.count, 1);
+      expect(engine.items.single.kind, MediaKind.video,
+          reason: '媒体元素正在播放的无扩展名直链就是视频，漏判会让嗅探永不命中');
+    });
+
+    test('kind=fetch 的无扩展名 http 地址被规则过滤（不入库，不提权）', () async {
+      final engine = SnifferEngine();
+      final ok = await engine.add('https://api.example.com/get?u=1', kind: 'fetch');
+      expect(ok, isFalse, reason: '无扩展名且非媒体来源的地址按噪声规则过滤');
+      expect(engine.items, isEmpty);
+    });
+
+    test('提权后 bestPlayable 可选中无扩展名媒体直链', () async {
+      final engine = SnifferEngine();
+      await engine.add(
+        'https://cdn.example.com/video/tos/alisg/oICbAA/?a=1',
+        kind: 'media',
+      );
+      final best = SnifferEngine.bestPlayable(engine.filtered(SniffFilter.video));
+      expect(best, isNotNull);
+      expect(best!.url, 'https://cdn.example.com/video/tos/alisg/oICbAA/?a=1');
+    });
+  });
 }
