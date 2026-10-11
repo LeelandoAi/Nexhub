@@ -1,6 +1,6 @@
 **[简体中文](./README.md)** | [English](./README.en.md)
 
-> 当前最新版 **v3.0.0（正式版）**。上一版本为 **v3.0.0-beta.4**（预发布测试版，含 3.0.0 线全部新增能力）。项目持续迭代中，欢迎通过 Pull Request / issues 贡献代码和想法。完整更新历史见 [RELEASE_NOTES](./RELEASE_NOTES.md)。
+> 当前最新版 **v3.1.0（正式版）**。上一版本为 **v3.0.0**（正式版，3.0.0 测试线稳定收口：Material 3 视觉体系 + 媒体服务器 + ECH 多平台 + 三大阅读器增强与漫画动态效果）。项目持续迭代中，欢迎通过 Pull Request / issues 贡献代码和想法。完整更新历史见 [RELEASE_NOTES](./RELEASE_NOTES.md)。
 
 # NexHub
 

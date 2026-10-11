@@ -1,5 +1,16 @@
 [
 {
+  "id": "v3.1.0-announce",
+  "date": "2026-10-11",
+  "title": "NexHub 3.1.0 正式版",
+  "titleEn": "NexHub 3.1.0 (stable release)",
+  "body": "NexHub 3.1.0 正式版来了！基础功能完整、可安全升级。播放器大升级：暂停时可逐帧步进（桌面逗号/句号快捷键）、起播自动全屏、播放失败页新增返回栏；视频嗅探候选排序选优防广告冒充，无头嗅探接入网络层被动捕获，部分站点精品线路真链捕获修复；搜索热词接入实时榜单并支持长按删除，源搜索改为回车提交；修复历史封面丢失、测速时无法下载新版本，Windows 安装包补齐 ECH 引擎 DLL（本版起 Windows ECH 真正可用）。无破坏性数据变更，沿用同一签名密钥可直接覆盖安装。",
+  "bodyEn": "NexHub 3.1.0 (stable) is here! Solid and safe to upgrade. Player upgrades: frame-by-frame stepping while paused (comma/period on desktop), auto-fullscreen on playback start, and a back bar on playback error pages; video sniffing now ranks candidates to keep ads from crowding out real links, passive network-layer capture covers iframe/Worker blind spots, and premium-line real-link capture is fixed on some sites; search hot words now come from a live ranking with long-press to delete, and source search submits on Enter; fixes history cover loss, update download stuck during speed tests, and the Windows installer now bundles the ECH engine DLL (ECH works on Windows from this build). No breaking data changes — same signing key, just overwrite-install.",
+  "url": "",
+  "urlText": "",
+  "urlTextEn": ""
+},
+{
   "id": "v3.0.0-announce",
   "date": "2026-10-05",
   "title": "NexHub 3.0.0 正式版",

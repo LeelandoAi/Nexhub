@@ -58,7 +58,7 @@ nexhub/
 **已被排除、绝不入库的内容**：
 
 - `plugins/builtin/*.json`（任何内置 / 预备源）
-- `reference/`（源的本地备份与参考样例）
+- `reference/`（源的本地备份与示例）
 - `docs/` 下仅白名单公开文档入库（`features.md` / `user-guide.md` / `developer-guide.md` / `GITHUB_ISSUE_TEMPLATE.md` 及其 `.en.md` 英文版）；其余内部开发文档、重开发提示词与计划、测试数据扫描脚本等均不入库
 - `build/`、`sdk/`（构建产物与 Flutter SDK，体积巨大）
 - `.workbuddy/`、`.trae/`、`.qoder/`、`.probe_tmp/`（本地工具与探针临时产物）

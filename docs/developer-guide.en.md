@@ -58,7 +58,7 @@ nexhub/
 **Content that is excluded and must never be committed**:
 
 - `plugins/builtin/*.json` (any built-in / prepared sources)
-- `reference/` (local source backups and reference samples)
+- `reference/` (local source backups and example files)
 - Internal dev docs, redevelopment prompts & plans, test-data scan scripts, etc. (under `docs/`, only the whitelisted public docs and their `.en.md` English versions are committed)
 - `build/`, `sdk/` (build artifacts and the Flutter SDK; huge)
 - `.workbuddy/`, `.trae/`, `.qoder/`, `.probe_tmp/` (local tool & probe temp artifacts)
